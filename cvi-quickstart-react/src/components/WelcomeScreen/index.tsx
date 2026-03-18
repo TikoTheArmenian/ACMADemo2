@@ -2,20 +2,8 @@ export const WelcomeScreen = ({ onStart, loading }: { onStart: () => void; loadi
   return (
     <div className="flex flex-col items-center justify-center h-screen gap-8 p-10">
       {/* Logo / avatar */}
-      <div className="w-[100px] h-[100px] rounded-full bg-[#4318ff]/10 flex items-center justify-center border-2 border-[#4318ff]/20">
-        <svg
-          width="48"
-          height="48"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="#4318ff"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-          <circle cx="12" cy="7" r="4" />
-        </svg>
+      <div className="w-[100px] h-[100px] rounded-full bg-[#4318ff]/10 flex items-center justify-center border-2 border-[#4318ff]/20 overflow-hidden">
+      <img src="acma-single.png" alt="ACMA" className="h-full w-full object-cover" />
       </div>
 
       <div className="text-center">

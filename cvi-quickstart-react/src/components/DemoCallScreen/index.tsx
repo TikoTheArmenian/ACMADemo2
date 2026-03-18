@@ -82,16 +82,15 @@ export const DemoCallScreen = ({
 
   // Refs (stable across callbacks)
   const dailyRef = useRef(daily)
-  const localIdRef = useRef(localId)
   const responseIndexRef = useRef(0)
   const isPlayingRef = useRef(false)
   const audioChunksRef = useRef<string[][]>([])
   const speechTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const userIsSpeakingRef = useRef(false)
-  const hasSpokenOnceRef = useRef(false)
+  const micAnalyserRef = useRef<AnalyserNode | null>(null)
+  const micPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const micCtxRef = useRef<AudioContext | null>(null)
 
   useEffect(() => { dailyRef.current = daily }, [daily])
-  useEffect(() => { localIdRef.current = localId }, [localId])
 
   // ---- Preload all audio files into PCM chunks ----
   useEffect(() => {
@@ -153,33 +152,81 @@ export const DemoCallScreen = ({
     }, []),
   )
 
-  // ---- Detect user speech via Daily.co active-speaker-change ----
-  // In BYOA/echo mode there's no STT, so conversation.utterance events don't fire.
-  // Instead we use Daily's built-in VAD: when the local user becomes the active
-  // speaker they're talking; after 2 s of silence we trigger the next response.
-  useDailyEvent(
-    'active-speaker-change',
-    useCallback((event: { activeSpeaker?: { peerId?: string } }) => {
-      const isLocal = event?.activeSpeaker?.peerId === localIdRef.current
-      setIsUserSpeaking(isLocal)
+  // ---- Detect user speech by polling local mic audio levels ----
+  // In BYOA/echo mode there's no STT pipeline, so Tavus events don't fire.
+  // active-speaker-change is also unreliable with a silent replica.
+  // Instead we tap the local mic track directly with an AnalyserNode.
+  useEffect(() => {
+    if (!isConnected || !daily) return
 
-      if (isLocal) {
-        // User is speaking — mark it and reset the silence timer
-        userIsSpeakingRef.current = true
-        hasSpokenOnceRef.current = true
-        if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current)
-      } else if (userIsSpeakingRef.current) {
-        // User just stopped being active speaker — start silence countdown
-        userIsSpeakingRef.current = false
-        if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current)
-        speechTimeoutRef.current = setTimeout(() => {
-          if (!isPlayingRef.current && hasSpokenOnceRef.current) {
-            triggerRef.current()
-          }
-        }, 2000)
+    let cancelled = false
+
+    const setup = async () => {
+      // Get the local audio track from Daily
+      const participants = daily.participants()
+      const localTrack = participants?.local?.tracks?.audio?.persistentTrack
+      if (!localTrack) {
+        console.warn('No local audio track yet — retrying in 1 s')
+        setTimeout(() => { if (!cancelled) setup() }, 1000)
+        return
       }
-    }, []),
-  )
+
+      const ctx = new AudioContext()
+      if (ctx.state === 'suspended') {
+        console.warn('AudioContext suspended — resuming')
+        await ctx.resume()
+      }
+      console.log('Mic AudioContext state:', ctx.state)
+      const source = ctx.createMediaStreamSource(new MediaStream([localTrack]))
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 512
+      source.connect(analyser)
+      micAnalyserRef.current = analyser
+      micCtxRef.current = ctx
+
+      const buf = new Uint8Array(analyser.frequencyBinCount)
+      const SPEECH_THRESHOLD = 30 // 0-255, tune if needed
+      let speaking = false
+      let hasSpoken = false
+
+      // Poll audio levels every 150 ms
+      micPollRef.current = setInterval(() => {
+        analyser.getByteFrequencyData(buf)
+        const avg = buf.reduce((a, b) => a + b, 0) / buf.length
+        const nowSpeaking = avg > SPEECH_THRESHOLD
+
+        if (nowSpeaking) {
+          speaking = true
+          hasSpoken = true
+          setIsUserSpeaking(true)
+          // Reset silence timer on every speaking frame
+          if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current)
+          speechTimeoutRef.current = null
+        } else if (speaking) {
+          // Just went quiet — start the silence countdown
+          speaking = false
+          setIsUserSpeaking(false)
+          if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current)
+          speechTimeoutRef.current = setTimeout(() => {
+            if (!isPlayingRef.current && hasSpoken) {
+              console.log('User stopped speaking — triggering next response')
+              triggerRef.current()
+              hasSpoken = false
+            }
+          }, 250)
+        }
+      }, 150)
+    }
+
+    setup()
+
+    return () => {
+      cancelled = true
+      if (micPollRef.current) clearInterval(micPollRef.current)
+      if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current)
+      micCtxRef.current?.close()
+    }
+  }, [isConnected, daily])
 
   // ---- Send pre-recorded audio via echo (no delays between chunks) ----
   const triggerNextResponse = useCallback(() => {
@@ -334,7 +381,7 @@ export const DemoCallScreen = ({
                       )}
                     </div>
                     <p className="font-['DM_Sans'] font-semibold text-[20px] text-[#1B2559] mb-1">
-                      Demo Patient
+                      Demo Case Manager
                     </p>
                     <div className="flex items-center gap-1.5 mb-5">
                       <span className="font-['DM_Sans'] font-medium text-[15px] text-[#4318ff]">
@@ -371,7 +418,7 @@ export const DemoCallScreen = ({
                 {/* ── Patient name tag — top left ──────────────── */}
                 <div className="absolute top-[13px] left-[13px] z-10 bg-[#4318ff] flex items-center gap-[4px] px-[8px] py-[4px] rounded-[8px]">
                   <p className="font-['DM_Sans'] font-medium text-[22px] leading-[20px] tracking-[-0.88px] text-[#eff0fa] text-center">
-                    Demo Patient
+                    Demo Case Manager
                   </p>
                 </div>
 
