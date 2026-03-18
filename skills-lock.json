@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "skills": {
+    "tavus-cvi-interactions": {
+      "source": "Tavus-Engineering/tavus-skills",
+      "sourceType": "github",
+      "computedHash": "5956d0e9a4e3f3b7e8a9c186e18904153fe0ef5434a7220336291bd9655e4c6c"
+    },
+    "tavus-cvi-knowledge": {
+      "source": "Tavus-Engineering/tavus-skills",
+      "sourceType": "github",
+      "computedHash": "57a3b079b3306623e08140fb6ff7b94a1c3e1e497f3e73a9f20467467b38c0d0"
+    },
+    "tavus-cvi-quickstart": {
+      "source": "Tavus-Engineering/tavus-skills",
+      "sourceType": "github",
+      "computedHash": "9f0d08a605dec850e130caeffdd87fe404e0bf71e4d6fc3503f15c68aef8884e"
+    },
+    "tavus-cvi-ui": {
+      "source": "Tavus-Engineering/tavus-skills",
+      "sourceType": "github",
+      "computedHash": "482acf7270c3cd1f88e6fd989d1affa4e759f3e8f673f565c2e6813b081ba220"
+    },
+    "tavus-overview": {
+      "source": "Tavus-Engineering/tavus-skills",
+      "sourceType": "github",
+      "computedHash": "7eea28164d69e2a6d11c4efbac5bae3b28b9f9d2cf5ebe514acf66bcbc744616"
+    },
+    "tavus-replica": {
+      "source": "Tavus-Engineering/tavus-skills",
+      "sourceType": "github",
+      "computedHash": "6c7ccf57dcbcf26514b9e4dbf57a10282ab013011b0596c7064a4bcb33cb92df"
+    },
+    "tavus-video-gen": {
+      "source": "Tavus-Engineering/tavus-skills",
+      "sourceType": "github",
+      "computedHash": "504ea8b546876d7e75e7e1daea89f34a8ddfee266f1ddc215e8592712850e28c"
+    }
+  }
+}
