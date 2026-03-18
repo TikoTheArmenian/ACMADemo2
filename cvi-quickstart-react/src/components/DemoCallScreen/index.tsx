@@ -26,16 +26,41 @@ function uint8ToBase64(bytes: Uint8Array): string {
   return btoa(binary)
 }
 
+/** Resample Float32Array from srcRate to dstRate using linear interpolation */
+function resample(input: Float32Array, srcRate: number, dstRate: number): Float32Array {
+  if (srcRate === dstRate) return input
+  const ratio = srcRate / dstRate
+  const outLen = Math.round(input.length / ratio)
+  const output = new Float32Array(outLen)
+  for (let i = 0; i < outLen; i++) {
+    const srcIdx = i * ratio
+    const lo = Math.floor(srcIdx)
+    const hi = Math.min(lo + 1, input.length - 1)
+    const frac = srcIdx - lo
+    output[i] = input[lo] * (1 - frac) + input[hi] * frac
+  }
+  return output
+}
+
 /** Decode mp3 → 24 kHz mono 16-bit PCM → split into ~5-second base64 chunks */
 async function prepareAudioChunks(url: string): Promise<string[]> {
   const resp = await fetch(url)
   const buf = await resp.arrayBuffer()
 
-  const ctx = new AudioContext({ sampleRate: 24000 })
+  // Decode at whatever sample rate the browser supports
+  const ctx = new AudioContext()
   const decoded = await ctx.decodeAudioData(buf)
+  const actualRate = decoded.sampleRate
   await ctx.close()
 
-  const floats = decoded.getChannelData(0)
+  console.log(`[AUDIO] ${url}: decoded at ${actualRate} Hz, ${decoded.length} samples, ${decoded.duration.toFixed(2)}s`)
+
+  // Get mono channel and resample to exactly 24 kHz
+  const raw = decoded.getChannelData(0)
+  const floats = resample(raw, actualRate, 24000)
+
+  console.log(`[AUDIO] ${url}: resampled ${raw.length} → ${floats.length} samples (24kHz)`)
+
   const pcm = new Int16Array(floats.length)
   for (let i = 0; i < floats.length; i++) {
     pcm[i] = Math.max(-32768, Math.min(32767, Math.round(floats[i] * 32767)))
@@ -48,6 +73,7 @@ async function prepareAudioChunks(url: string): Promise<string[]> {
   for (let off = 0; off < bytes.length; off += CHUNK_BYTES) {
     chunks.push(uint8ToBase64(bytes.slice(off, Math.min(off + CHUNK_BYTES, bytes.length))))
   }
+  console.log(`[AUDIO] ${url}: ${chunks.length} chunks, total ${bytes.length} bytes PCM`)
   return chunks
 }
 
@@ -170,7 +196,7 @@ export const DemoCallScreen = ({
     let source: MediaStreamAudioSourceNode | null = null
     let buf: Uint8Array | null = null
 
-    const SPEECH_THRESHOLD = 30
+    const SPEECH_THRESHOLD = 12
     let speaking = false
     let hasSpoken = false
     let zeroFrames = 0 // watchdog: count consecutive zero-level frames
@@ -302,7 +328,7 @@ export const DemoCallScreen = ({
             } else if (isPlayingRef.current) {
               console.log('[MIC] Skipped trigger — replica still playing')
             }
-          }, 250)
+          }, 2050)
         }
       }, 150)
     }
@@ -527,7 +553,7 @@ export const DemoCallScreen = ({
                 {/* ── Patient name tag — top left ──────────────── */}
                 <div className="absolute top-[13px] left-[13px] z-10 bg-[#4318ff] flex items-center gap-[4px] px-[8px] py-[4px] rounded-[8px]">
                   <p className="font-['DM_Sans'] font-medium text-[22px] leading-[20px] tracking-[-0.88px] text-[#eff0fa] text-center">
-                    Demo Case Manager
+                    Case Manager
                   </p>
                 </div>
 
