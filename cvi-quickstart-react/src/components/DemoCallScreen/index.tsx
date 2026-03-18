@@ -148,6 +148,7 @@ export const DemoCallScreen = ({
       if (data.event_type === 'conversation.replica.stopped_speaking') {
         setIsReplicaSpeaking(false)
         isPlayingRef.current = false
+        if (safetyTimerRef.current) { clearTimeout(safetyTimerRef.current); safetyTimerRef.current = null }
       }
     }, []),
   )
@@ -191,6 +192,11 @@ export const DemoCallScreen = ({
 
       // Poll audio levels every 150 ms
       micPollRef.current = setInterval(() => {
+        // Re-resume if browser suspended the context (e.g., tab backgrounded)
+        if (ctx.state === 'suspended') {
+          ctx.resume().catch(() => {})
+          return
+        }
         analyser.getByteFrequencyData(buf)
         const avg = buf.reduce((a, b) => a + b, 0) / buf.length
         const nowSpeaking = avg > SPEECH_THRESHOLD
@@ -224,11 +230,16 @@ export const DemoCallScreen = ({
       cancelled = true
       if (micPollRef.current) clearInterval(micPollRef.current)
       if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current)
+      if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current)
+      if (safetyTimerRef.current) clearTimeout(safetyTimerRef.current)
       micCtxRef.current?.close()
     }
   }, [isConnected, daily])
 
-  // ---- Send pre-recorded audio via echo (no delays between chunks) ----
+  // ---- Send pre-recorded audio via echo (staggered to avoid data channel overflow) ----
+  const playbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const safetyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   const triggerNextResponse = useCallback(() => {
     const idx = responseIndexRef.current
     const d = dailyRef.current
@@ -238,8 +249,10 @@ export const DemoCallScreen = ({
     isPlayingRef.current = true
     setIsReplicaSpeaking(true)
 
-    // Fire all chunks immediately — Tavus buffers them server-side
-    for (let i = 0; i < chunks.length; i++) {
+    // Send chunks with 80ms spacing to avoid overwhelming the data channel
+    let i = 0
+    const sendNext = () => {
+      if (i >= chunks.length) return
       d.sendAppMessage(
         {
           message_type: 'conversation',
@@ -255,7 +268,22 @@ export const DemoCallScreen = ({
         },
         '*',
       )
+      i++
+      if (i < chunks.length) {
+        playbackTimerRef.current = setTimeout(sendNext, 80)
+      }
     }
+    sendNext()
+
+    // Safety timeout: if stopped_speaking never arrives, unlock after 30s
+    if (safetyTimerRef.current) clearTimeout(safetyTimerRef.current)
+    safetyTimerRef.current = setTimeout(() => {
+      if (isPlayingRef.current) {
+        console.warn('Safety timeout — unlocking isPlaying after 30 s')
+        isPlayingRef.current = false
+        setIsReplicaSpeaking(false)
+      }
+    }, 30_000)
 
     responseIndexRef.current += 1
     setResponseIndex(responseIndexRef.current)
