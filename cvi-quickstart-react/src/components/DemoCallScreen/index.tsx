@@ -322,8 +322,8 @@ export const DemoCallScreen = ({
       <div className="flex-1 min-h-0 px-4 pb-4">
         <div className="relative w-full h-full mx-auto" style={{ maxWidth: '1200px' }}>
           {/* Outer white card */}
-          <div className="relative w-full h-full bg-white rounded-[18px] border border-[#CACDD2] shadow-[0_24px_32px_-12px_rgba(18,19,20,0.10)] overflow-hidden 2xl:p-[17.4px] xl:p-[12px] lg:p-[10px] md:p-[6px] p-[10px]">
-            <div className="relative w-full h-full pb-[20px]">
+          <div className="relative w-full h-full bg-white rounded-[18px] border border-[#CACDD2] shadow-[0_24px_32px_-12px_rgba(18,19,20,0.10)] overflow-hidden">
+            <div className="relative w-full h-full">
               {/* Video container — border lights up when replica is speaking */}
               <div
                 className={`relative h-full bg-[#1a1a2e] rounded-[16px] border-2 overflow-hidden transition-colors duration-300 ${
