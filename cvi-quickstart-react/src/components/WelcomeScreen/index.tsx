@@ -1,4 +1,4 @@
-import type { CSSProperties, MouseEvent } from 'react';
+import { useEffect, useRef, type CSSProperties, type MouseEvent } from 'react';
 
 const defaultMousePosition = {
   '--mouse-x': '50%',
@@ -6,23 +6,51 @@ const defaultMousePosition = {
 } as CSSProperties;
 
 export const WelcomeScreen = ({ onStart, loading }: { onStart: () => void; loading: boolean }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const targetPositionRef = useRef({ x: 50, y: 50 });
+  const currentPositionRef = useRef({ x: 50, y: 50 });
+
+  useEffect(() => {
+    const animate = () => {
+      const container = containerRef.current;
+      const currentPosition = currentPositionRef.current;
+      const targetPosition = targetPositionRef.current;
+
+      currentPosition.x += (targetPosition.x - currentPosition.x) *   1.00;
+      currentPosition.y += (targetPosition.y - currentPosition.y) * 1.00;
+
+      container?.style.setProperty('--mouse-x', `${currentPosition.x}%`);
+      container?.style.setProperty('--mouse-y', `${currentPosition.y}%`);
+
+      animationFrameRef.current = requestAnimationFrame(animate);
+    };
+
+    animationFrameRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, []);
+
   const handleMouseMove = (event: MouseEvent<HTMLDivElement>) => {
     const { currentTarget, clientX, clientY } = event;
     const rect = currentTarget.getBoundingClientRect();
-    const mouseX = `${((clientX - rect.left) / rect.width) * 100}%`;
-    const mouseY = `${((clientY - rect.top) / rect.height) * 100}%`;
-
-    currentTarget.style.setProperty('--mouse-x', mouseX);
-    currentTarget.style.setProperty('--mouse-y', mouseY);
+    targetPositionRef.current = {
+      x: ((clientX - rect.left) / rect.width) * 100,
+      y: ((clientY - rect.top) / rect.height) * 100,
+    };
   };
 
-  const handleMouseLeave = (event: MouseEvent<HTMLDivElement>) => {
-    event.currentTarget.style.setProperty('--mouse-x', '50%');
-    event.currentTarget.style.setProperty('--mouse-y', '50%');
+  const handleMouseLeave = () => {
+    targetPositionRef.current = { x: 50, y: 50 };
   };
 
   return (
     <div
+      ref={containerRef}
       className="welcome-screen relative flex h-screen items-center justify-center overflow-hidden p-10"
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}

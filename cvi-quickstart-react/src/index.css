@@ -163,12 +163,28 @@ body {
 .welcome-screen-dots-secondary {
   position: absolute;
   inset: -6%;
-  background-image: radial-gradient(circle, rgba(17, 24, 39, 0.14) 1px, transparent 1.6px);
-  background-size: 34px 34px;
+  background-image: radial-gradient(circle, rgba(17, 24, 39, 0.24) 1.4px, transparent 2.2px);
+  background-size: 32px 32px;
   background-position: 0 0;
-  opacity: 0.4;
+  opacity: 0.78;
   animation: welcome-dots-drift 18s ease-in-out infinite;
   transition: transform 220ms ease-out;
+  -webkit-mask-image: radial-gradient(
+    circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+    rgba(0, 0, 0, 0.98) 0,
+    rgba(0, 0, 0, 0.95) 8%,
+    rgba(0, 0, 0, 0.62) 15%,
+    rgba(0, 0, 0, 0.14) 22%,
+    transparent 30%
+  );
+  mask-image: radial-gradient(
+    circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+    rgba(0, 0, 0, 0.98) 0,
+    rgba(0, 0, 0, 0.95) 8%,
+    rgba(0, 0, 0, 0.62) 15%,
+    rgba(0, 0, 0, 0.14) 22%,
+    transparent 30%
+  );
 }
 
 .welcome-screen-dots {
@@ -176,10 +192,10 @@ body {
 }
 
 .welcome-screen-dots-secondary {
-  background-image: radial-gradient(circle, rgba(107, 114, 128, 0.12) 1px, transparent 1.8px);
-  background-size: 52px 52px;
+  background-image: radial-gradient(circle, rgba(67, 24, 255, 0.18) 1.6px, transparent 2.4px);
+  background-size: 46px 46px;
   background-position: 18px 14px;
-  opacity: 0.28;
+  opacity: 0.52;
   animation-duration: 24s;
   animation-direction: reverse;
   transform: translate3d(calc((var(--mouse-x, 50%) - 50%) * -0.025), calc((var(--mouse-y, 50%) - 50%) * -0.025), 0);
@@ -189,6 +205,6 @@ body {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.32) 14%, rgba(255, 255, 255, 0) 34%);
-  opacity: 0.9;
+    radial-gradient(circle at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.12) 16%, rgba(255, 255, 255, 0) 34%);
+  opacity: 0.6;
 }
