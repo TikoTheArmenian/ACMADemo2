@@ -143,9 +143,11 @@ export const DemoCallScreen = ({
       if (!data) return
 
       if (data.event_type === 'conversation.replica.started_speaking') {
+        console.log('[ECHO] Replica started speaking')
         setIsReplicaSpeaking(true)
       }
       if (data.event_type === 'conversation.replica.stopped_speaking') {
+        console.log('[ECHO] Replica stopped speaking — unlocking isPlaying')
         setIsReplicaSpeaking(false)
         isPlayingRef.current = false
         if (safetyTimerRef.current) { clearTimeout(safetyTimerRef.current); safetyTimerRef.current = null }
@@ -155,69 +157,150 @@ export const DemoCallScreen = ({
 
   // ---- Detect user speech by polling local mic audio levels ----
   // In BYOA/echo mode there's no STT pipeline, so Tavus events don't fire.
-  // active-speaker-change is also unreliable with a silent replica.
-  // Instead we tap the local mic track directly with an AnalyserNode.
+  // We tap the local mic track directly with an AnalyserNode.
+  // Key: we re-check the track on every poll to survive track replacements.
+  const currentTrackIdRef = useRef<string | null>(null)
+
   useEffect(() => {
     if (!isConnected || !daily) return
 
     let cancelled = false
+    let ctx: AudioContext | null = null
+    let analyser: AnalyserNode | null = null
+    let source: MediaStreamAudioSourceNode | null = null
+    let buf: Uint8Array | null = null
 
-    const setup = async () => {
-      // Get the local audio track from Daily
-      const participants = daily.participants()
-      const localTrack = participants?.local?.tracks?.audio?.persistentTrack
-      if (!localTrack) {
-        console.warn('No local audio track yet — retrying in 1 s')
-        setTimeout(() => { if (!cancelled) setup() }, 1000)
-        return
+    const SPEECH_THRESHOLD = 30
+    let speaking = false
+    let hasSpoken = false
+    let zeroFrames = 0 // watchdog: count consecutive zero-level frames
+
+    const connectTrack = async (track: MediaStreamTrack) => {
+      const trackId = track.id
+      if (trackId === currentTrackIdRef.current && ctx?.state === 'running') return // already connected
+      console.log('[MIC] Connecting to track:', trackId, 'readyState:', track.readyState)
+
+      // Tear down old context if any
+      if (ctx && ctx.state !== 'closed') {
+        try { ctx.close() } catch (_) {}
       }
 
-      const ctx = new AudioContext()
+      ctx = new AudioContext()
       if (ctx.state === 'suspended') {
-        console.warn('AudioContext suspended — resuming')
+        console.log('[MIC] AudioContext suspended, resuming...')
         await ctx.resume()
       }
-      console.log('Mic AudioContext state:', ctx.state)
-      const source = ctx.createMediaStreamSource(new MediaStream([localTrack]))
-      const analyser = ctx.createAnalyser()
+      console.log('[MIC] AudioContext state:', ctx.state)
+
+      source = ctx.createMediaStreamSource(new MediaStream([track]))
+      analyser = ctx.createAnalyser()
       analyser.fftSize = 512
       source.connect(analyser)
+      buf = new Uint8Array(analyser.frequencyBinCount)
       micAnalyserRef.current = analyser
       micCtxRef.current = ctx
+      currentTrackIdRef.current = trackId
+      zeroFrames = 0
+      console.log('[MIC] Analyser connected, frequencyBinCount:', analyser.frequencyBinCount)
+    }
 
-      const buf = new Uint8Array(analyser.frequencyBinCount)
-      const SPEECH_THRESHOLD = 30 // 0-255, tune if needed
-      let speaking = false
-      let hasSpoken = false
+    const getLocalTrack = (): MediaStreamTrack | null => {
+      try {
+        const participants = daily.participants()
+        return participants?.local?.tracks?.audio?.persistentTrack ?? null
+      } catch {
+        return null
+      }
+    }
 
-      // Poll audio levels every 150 ms
-      micPollRef.current = setInterval(() => {
-        // Re-resume if browser suspended the context (e.g., tab backgrounded)
-        if (ctx.state === 'suspended') {
-          ctx.resume().catch(() => {})
+    const setup = async () => {
+      const track = getLocalTrack()
+      if (!track || track.readyState !== 'live') {
+        console.log('[MIC] No live local audio track yet — retrying in 1s')
+        if (!cancelled) setTimeout(setup, 1000)
+        return
+      }
+      await connectTrack(track)
+      startPolling()
+    }
+
+    const startPolling = () => {
+      if (micPollRef.current) clearInterval(micPollRef.current)
+
+      micPollRef.current = setInterval(async () => {
+        // Check if AudioContext needs resume
+        if (ctx?.state === 'suspended') {
+          console.log('[MIC] AudioContext suspended mid-session, resuming...')
+          await ctx.resume().catch(() => {})
           return
         }
+        if (ctx?.state === 'closed') {
+          console.warn('[MIC] AudioContext closed unexpectedly, reconnecting...')
+          const track = getLocalTrack()
+          if (track?.readyState === 'live') await connectTrack(track)
+          return
+        }
+
+        // Check if the track was replaced by Daily (reconnect, etc.)
+        const currentTrack = getLocalTrack()
+        if (currentTrack && currentTrack.id !== currentTrackIdRef.current) {
+          console.log('[MIC] Track changed! Old:', currentTrackIdRef.current, 'New:', currentTrack.id)
+          if (currentTrack.readyState === 'live') await connectTrack(currentTrack)
+          return
+        }
+        // Check if track ended
+        if (currentTrack && currentTrack.readyState !== 'live') {
+          console.warn('[MIC] Track ended (readyState:', currentTrack.readyState, ') — waiting for new track')
+          currentTrackIdRef.current = null
+          return
+        }
+
+        if (!analyser || !buf) return
         analyser.getByteFrequencyData(buf)
         const avg = buf.reduce((a, b) => a + b, 0) / buf.length
         const nowSpeaking = avg > SPEECH_THRESHOLD
 
+        // Watchdog: detect if analyser is producing all-zero data for too long
+        if (avg === 0) {
+          zeroFrames++
+          if (zeroFrames === 100) { // ~15 seconds of silence — log once
+            console.warn('[MIC] Watchdog: 100 consecutive zero frames — analyser may be dead')
+          }
+          if (zeroFrames > 0 && zeroFrames % 200 === 0) { // every ~30s of zeros, try reconnect
+            console.warn('[MIC] Watchdog: still all zeros after', zeroFrames, 'frames — reconnecting')
+            const track = getLocalTrack()
+            if (track?.readyState === 'live') {
+              currentTrackIdRef.current = null // force reconnect
+              await connectTrack(track)
+            }
+          }
+        } else {
+          if (zeroFrames > 50) {
+            console.log('[MIC] Audio signal recovered after', zeroFrames, 'zero frames')
+          }
+          zeroFrames = 0
+        }
+
         if (nowSpeaking) {
+          if (!speaking) console.log('[MIC] User started speaking (avg:', avg.toFixed(1), ')')
           speaking = true
           hasSpoken = true
           setIsUserSpeaking(true)
-          // Reset silence timer on every speaking frame
           if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current)
           speechTimeoutRef.current = null
         } else if (speaking) {
-          // Just went quiet — start the silence countdown
           speaking = false
           setIsUserSpeaking(false)
+          console.log('[MIC] User went quiet, starting 250ms silence countdown')
           if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current)
           speechTimeoutRef.current = setTimeout(() => {
+            console.log('[MIC] Silence timeout fired — isPlaying:', isPlayingRef.current, 'hasSpoken:', hasSpoken, 'responseIdx:', responseIndexRef.current)
             if (!isPlayingRef.current && hasSpoken) {
-              console.log('User stopped speaking — triggering next response')
+              console.log('[MIC] Triggering next response')
               triggerRef.current()
               hasSpoken = false
+            } else if (isPlayingRef.current) {
+              console.log('[MIC] Skipped trigger — replica still playing')
             }
           }, 250)
         }
@@ -230,29 +313,31 @@ export const DemoCallScreen = ({
       cancelled = true
       if (micPollRef.current) clearInterval(micPollRef.current)
       if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current)
-      if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current)
+
       if (safetyTimerRef.current) clearTimeout(safetyTimerRef.current)
-      micCtxRef.current?.close()
+      if (ctx && ctx.state !== 'closed') ctx.close()
+      console.log('[MIC] Cleanup complete')
     }
   }, [isConnected, daily])
 
   // ---- Send pre-recorded audio via echo (staggered to avoid data channel overflow) ----
-  const playbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const safetyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const triggerNextResponse = useCallback(() => {
     const idx = responseIndexRef.current
     const d = dailyRef.current
     const chunks = audioChunksRef.current[idx]
-    if (!d || !chunks || idx >= RESPONSE_URLS.length || isPlayingRef.current) return
+    if (!d || !chunks || idx >= RESPONSE_URLS.length || isPlayingRef.current) {
+      console.log('[ECHO] triggerNextResponse blocked — daily:', !!d, 'chunks:', !!chunks, 'idx:', idx, '/', RESPONSE_URLS.length, 'isPlaying:', isPlayingRef.current)
+      return
+    }
 
+    console.log('[ECHO] Sending response', idx, '—', chunks.length, 'chunks (all at once)')
     isPlayingRef.current = true
     setIsReplicaSpeaking(true)
 
-    // Send chunks with 80ms spacing to avoid overwhelming the data channel
-    let i = 0
-    const sendNext = () => {
-      if (i >= chunks.length) return
+    // Fire all chunks immediately — Tavus buffers server-side
+    for (let i = 0; i < chunks.length; i++) {
       d.sendAppMessage(
         {
           message_type: 'conversation',
@@ -268,12 +353,8 @@ export const DemoCallScreen = ({
         },
         '*',
       )
-      i++
-      if (i < chunks.length) {
-        playbackTimerRef.current = setTimeout(sendNext, 80)
-      }
     }
-    sendNext()
+    console.log('[ECHO] All chunks sent for response', idx)
 
     // Safety timeout: if stopped_speaking never arrives, unlock after 30s
     if (safetyTimerRef.current) clearTimeout(safetyTimerRef.current)
