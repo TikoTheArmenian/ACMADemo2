@@ -194,7 +194,7 @@ export const DemoCallScreen = ({
     let ctx: AudioContext | null = null
     let analyser: AnalyserNode | null = null
     let source: MediaStreamAudioSourceNode | null = null
-    let buf: Uint8Array | null = null
+    let buf: Uint8Array<ArrayBuffer> | null = null
 
     const SPEECH_THRESHOLD = 12
     let speaking = false
@@ -222,7 +222,7 @@ export const DemoCallScreen = ({
       analyser = ctx.createAnalyser()
       analyser.fftSize = 512
       source.connect(analyser)
-      buf = new Uint8Array(analyser.frequencyBinCount)
+      buf = new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount))
       micAnalyserRef.current = analyser
       micCtxRef.current = ctx
       currentTrackIdRef.current = trackId
