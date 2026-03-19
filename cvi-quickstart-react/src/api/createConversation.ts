@@ -1,4 +1,4 @@
-import { TAVUS_API_KEY } from '@/config';
+import { TAVUS_API_KEY, ELEVENLABS_API_KEY } from '@/config';
 import { IConversation } from '@/types';
 
 export const createConversation = async (): Promise<IConversation> => {
@@ -15,8 +15,10 @@ export const createConversation = async (): Promise<IConversation> => {
       pipeline_mode: 'echo',
       layers: {
         tts: {
-          tts_engine: 'eleven_labs',
-          tts_engine_model_id: 'eleven_flash_v2_5',
+          tts_engine: 'elevenlabs',
+          tts_model_name: 'eleven_flash_v2_5',
+          api_key: ELEVENLABS_API_KEY,
+          external_voice_id: 'dMyQqiVXTU80dDl2eNK8',
         },
       },
     }),
