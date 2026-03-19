@@ -2,7 +2,7 @@ import { TAVUS_API_KEY } from '@/config';
 import { IConversation } from '@/types';
 
 export const createConversation = async (): Promise<IConversation> => {
-  // Step 1: Create an echo-mode persona (BYOA — no LLM, no STT, no TTS pipeline)
+  // Step 1: Create an echo-mode persona with ElevenLabs TTS
   const personaRes = await fetch('https://tavusapi.com/v2/personas', {
     method: 'POST',
     headers: {
@@ -13,6 +13,12 @@ export const createConversation = async (): Promise<IConversation> => {
       persona_name: `ACMA Echo ${Date.now()}`,
       default_replica_id: 'raf6459c9b82',
       pipeline_mode: 'echo',
+      layers: {
+        tts: {
+          tts_engine: 'eleven_labs',
+          tts_engine_model_id: 'eleven_flash_v2_5',
+        },
+      },
     }),
   });
 

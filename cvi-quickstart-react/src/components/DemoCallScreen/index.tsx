@@ -2,7 +2,6 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import {
   useDaily,
   useParticipantIds,
-  useLocalSessionId,
   useDailyEvent,
   DailyVideo,
   DailyAudio,
@@ -11,71 +10,16 @@ import { Mic, MicOff } from 'lucide-react'
 import { IConversation } from '@/types'
 
 // ---------------------------------------------------------------------------
-// Audio utilities — convert mp3 files to base64 PCM for Tavus echo
+// Scripted text responses — sent via echo with ElevenLabs TTS
 // ---------------------------------------------------------------------------
 
-const RESPONSE_URLS = Array.from({ length: 6 }, (_, i) => `/response_${i + 1}.mp3`)
-
-function uint8ToBase64(bytes: Uint8Array): string {
-  let binary = ''
-  const chunkSize = 0x8000
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const slice = bytes.subarray(i, i + chunkSize)
-    binary += String.fromCharCode.apply(null, Array.from(slice))
-  }
-  return btoa(binary)
-}
-
-/** Resample Float32Array from srcRate to dstRate using linear interpolation */
-function resample(input: Float32Array, srcRate: number, dstRate: number): Float32Array {
-  if (srcRate === dstRate) return input
-  const ratio = srcRate / dstRate
-  const outLen = Math.round(input.length / ratio)
-  const output = new Float32Array(outLen)
-  for (let i = 0; i < outLen; i++) {
-    const srcIdx = i * ratio
-    const lo = Math.floor(srcIdx)
-    const hi = Math.min(lo + 1, input.length - 1)
-    const frac = srcIdx - lo
-    output[i] = input[lo] * (1 - frac) + input[hi] * frac
-  }
-  return output
-}
-
-/** Decode mp3 → 24 kHz mono 16-bit PCM → split into ~5-second base64 chunks */
-async function prepareAudioChunks(url: string): Promise<string[]> {
-  const resp = await fetch(url)
-  const buf = await resp.arrayBuffer()
-
-  // Decode at whatever sample rate the browser supports
-  const ctx = new AudioContext()
-  const decoded = await ctx.decodeAudioData(buf)
-  const actualRate = decoded.sampleRate
-  await ctx.close()
-
-  console.log(`[AUDIO] ${url}: decoded at ${actualRate} Hz, ${decoded.length} samples, ${decoded.duration.toFixed(2)}s`)
-
-  // Get mono channel and resample to exactly 24 kHz
-  const raw = decoded.getChannelData(0)
-  const floats = resample(raw, actualRate, 24000)
-
-  console.log(`[AUDIO] ${url}: resampled ${raw.length} → ${floats.length} samples (24kHz)`)
-
-  const pcm = new Int16Array(floats.length)
-  for (let i = 0; i < floats.length; i++) {
-    pcm[i] = Math.max(-32768, Math.min(32767, Math.round(floats[i] * 32767)))
-  }
-
-  // ~5-second chunks (24000 Hz × 2 bytes × 5 s = 240 000 bytes)
-  const bytes = new Uint8Array(pcm.buffer)
-  const CHUNK_BYTES = 240_000
-  const chunks: string[] = []
-  for (let off = 0; off < bytes.length; off += CHUNK_BYTES) {
-    chunks.push(uint8ToBase64(bytes.slice(off, Math.min(off + CHUNK_BYTES, bytes.length))))
-  }
-  console.log(`[AUDIO] ${url}: ${chunks.length} chunks, total ${bytes.length} bytes PCM`)
-  return chunks
-}
+const RESPONSES = [
+  `Error 404: Empathy not found.`,
+  `I'm going to need clarification on 47 acronyms, two social determinants, and why this discharge plan depends on a cousin named Mike.`,
+  `Have you tried turning the family off and back on again?`,
+  `Please simplify the request.`,
+  `Processing… Processing… Processing…\n\nAccessing organization charts…\nAccessing job descriptions…\nRequesting data from the Centers for Medicare and Medicaid…\nInterfacing with national security…\nContacting… cousin Mike…\n\nError… recalculating…\n\nRequest complete.\n\nGenerating 100-slide presentation on what case managers do…\n\nEstimated completion time…\n\n…unclear.`,
+]
 
 // ---------------------------------------------------------------------------
 // Component
@@ -90,7 +34,6 @@ export const DemoCallScreen = ({
 }) => {
   const daily = useDaily()
   const remoteIds = useParticipantIds({ filter: 'remote' })
-  const localId = useLocalSessionId()
 
   // UI state
   const [isConnected, setIsConnected] = useState(false)
@@ -98,7 +41,6 @@ export const DemoCallScreen = ({
   const [isReplicaSpeaking, setIsReplicaSpeaking] = useState(false)
   const [isUserSpeaking, setIsUserSpeaking] = useState(false)
   const [responseIndex, setResponseIndex] = useState(0)
-  const [audioReady, setAudioReady] = useState(false)
   const [showLoadingOverlay, setShowLoadingOverlay] = useState(true)
   const [loadingFading, setLoadingFading] = useState(false)
   const [loadingStage, setLoadingStage] = useState<'connecting' | 'preparing' | 'ready'>('connecting')
@@ -110,7 +52,6 @@ export const DemoCallScreen = ({
   const dailyRef = useRef(daily)
   const responseIndexRef = useRef(0)
   const isPlayingRef = useRef(false)
-  const audioChunksRef = useRef<string[][]>([])
   const speechTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const micAnalyserRef = useRef<AnalyserNode | null>(null)
   const micPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -118,23 +59,10 @@ export const DemoCallScreen = ({
 
   useEffect(() => { dailyRef.current = daily }, [daily])
 
-  // ---- Preload all audio files into PCM chunks ----
-  useEffect(() => {
-    ;(async () => {
-      try {
-        audioChunksRef.current = await Promise.all(RESPONSE_URLS.map(prepareAudioChunks))
-        setAudioReady(true)
-        console.log('Audio preloaded:', audioChunksRef.current.map((c) => c.length + ' chunks'))
-      } catch (err) {
-        console.error('Audio preload failed:', err)
-      }
-    })()
-  }, [])
-
   // ---- Join Daily.co room ----
   useEffect(() => {
     if (conversation && daily) {
-      daily.join({ url: conversation.conversation_url })
+      daily.join({ url: conversation.conversation_url, startVideoOff: true })
     }
   }, [daily, conversation])
 
@@ -346,51 +274,46 @@ export const DemoCallScreen = ({
     }
   }, [isConnected, daily])
 
-  // ---- Send pre-recorded audio via echo (staggered to avoid data channel overflow) ----
+  // ---- Send scripted text via echo (ElevenLabs TTS on Tavus side) ----
   const safetyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const triggerNextResponse = useCallback(() => {
     const idx = responseIndexRef.current
     const d = dailyRef.current
-    const chunks = audioChunksRef.current[idx]
-    if (!d || !chunks || idx >= RESPONSE_URLS.length || isPlayingRef.current) {
-      console.log('[ECHO] triggerNextResponse blocked — daily:', !!d, 'chunks:', !!chunks, 'idx:', idx, '/', RESPONSE_URLS.length, 'isPlaying:', isPlayingRef.current)
+    const text = RESPONSES[idx]
+    if (!d || text == null || idx >= RESPONSES.length || isPlayingRef.current) {
+      console.log('[ECHO] triggerNextResponse blocked — daily:', !!d, 'idx:', idx, '/', RESPONSES.length, 'isPlaying:', isPlayingRef.current)
       return
     }
 
-    console.log('[ECHO] Sending response', idx, '—', chunks.length, 'chunks (all at once)')
+    console.log('[ECHO] Sending text response', idx, ':', text.slice(0, 60) + '…')
     isPlayingRef.current = true
     setIsReplicaSpeaking(true)
 
-    // Fire all chunks immediately — Tavus buffers server-side
-    for (let i = 0; i < chunks.length; i++) {
-      d.sendAppMessage(
-        {
-          message_type: 'conversation',
-          event_type: 'conversation.echo',
-          conversation_id: conversation.conversation_id,
-          properties: {
-            modality: 'audio',
-            audio: chunks[i],
-            sample_rate: 24000,
-            inference_id: `response-${idx}`,
-            done: i === chunks.length - 1 ? 'true' : 'false',
-          },
+    d.sendAppMessage(
+      {
+        message_type: 'conversation',
+        event_type: 'conversation.echo',
+        conversation_id: conversation.conversation_id,
+        properties: {
+          modality: 'text',
+          text,
+          inference_id: `response-${idx}`,
+          done: 'true',
         },
-        '*',
-      )
-    }
-    console.log('[ECHO] All chunks sent for response', idx)
+      },
+      '*',
+    )
 
-    // Safety timeout: if stopped_speaking never arrives, unlock after 30s
+    // Safety timeout: if stopped_speaking never arrives, unlock after 60s
     if (safetyTimerRef.current) clearTimeout(safetyTimerRef.current)
     safetyTimerRef.current = setTimeout(() => {
       if (isPlayingRef.current) {
-        console.warn('Safety timeout — unlocking isPlaying after 30 s')
+        console.warn('Safety timeout — unlocking isPlaying after 60 s')
         isPlayingRef.current = false
         setIsReplicaSpeaking(false)
       }
-    }, 30_000)
+    }, 60_000)
 
     responseIndexRef.current += 1
     setResponseIndex(responseIndexRef.current)
@@ -402,7 +325,7 @@ export const DemoCallScreen = ({
 
   // ---- Controls ----
   const handleForceTurn = () => {
-    if (!isPlayingRef.current && responseIndexRef.current < RESPONSE_URLS.length && audioReady) {
+    if (!isPlayingRef.current && responseIndexRef.current < RESPONSES.length) {
       triggerNextResponse()
     }
   }
@@ -591,9 +514,9 @@ export const DemoCallScreen = ({
                   {/* Force respond — triggers next pre-recorded response */}
                   <button
                     onClick={handleForceTurn}
-                    disabled={!isConnected || isReplicaSpeaking || responseIndex >= RESPONSE_URLS.length || !audioReady}
+                    disabled={!isConnected || isReplicaSpeaking || responseIndex >= RESPONSES.length}
                     className={`w-[44px] h-[44px] lg:w-[56px] lg:h-[56px] xl:w-[66px] xl:h-[66px] rounded-[12px] lg:rounded-[16px] xl:rounded-[18px] flex items-center justify-center border overflow-hidden transition-all ${
-                      !isConnected || isReplicaSpeaking || responseIndex >= RESPONSE_URLS.length
+                      !isConnected || isReplicaSpeaking || responseIndex >= RESPONSES.length
                         ? 'bg-[#94a3b8] border-[#94a3b8] cursor-not-allowed opacity-50'
                         : 'bg-[rgba(129,129,129,0.3)] border-[#b7b7b7] shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),0_2px_8px_rgba(0,0,0,0.2)] hover:brightness-110 active:scale-95 active:bg-[rgba(67,24,255,0.7)] active:border-[#4318ff] active:shadow-[inset_0_1px_1px_rgba(255,255,255,0.3),0_2px_8px_rgba(67,24,255,0.4)]'
                     }`}
@@ -634,29 +557,6 @@ export const DemoCallScreen = ({
                   </div>
                 )}
 
-                {/* ── PIP user camera — bottom right ───────────── */}
-                {localId && (
-                  <div
-                    className={`absolute bottom-[10px] right-[10px] lg:bottom-[12px] lg:right-[12px] xl:bottom-[14px] xl:right-[14px] z-10 w-[120px] h-[77px] lg:w-[160px] lg:h-[103px] xl:w-[200px] xl:h-[128px] rounded-[10px] lg:rounded-[12px] xl:rounded-[22px] overflow-hidden bg-black/40 border-2 transition-colors duration-300 ${
-                      isUserSpeaking && !isMicMuted ? 'border-[#4318ff]' : 'border-transparent'
-                    }`}
-                  >
-                    <DailyVideo
-                      sessionId={localId}
-                      type="video"
-                      automirror
-                      className="block w-full h-full object-cover"
-                    />
-                    <div className="absolute bottom-[4px] left-[4px] lg:bottom-[6px] lg:left-[6px] xl:bottom-[6px] xl:left-[6px] bg-black/65 px-[4px] py-[2px] lg:px-[6px] lg:py-[3px] xl:px-[7px] xl:py-[3px] rounded-[4px] lg:rounded-[6px] xl:rounded-[6px] flex items-center gap-[3px] lg:gap-[4px] xl:gap-[5px]">
-                      <span className="font-['DM_Sans'] font-semibold text-[9px] lg:text-[11px] xl:text-[12px] leading-[14px] lg:leading-[16px] xl:leading-[18px] tracking-[-0.36px] text-[#eff0fa]">
-                        Greg
-                      </span>
-                      {isMicMuted && (
-                        <MicOff className="w-[9px] h-[9px] lg:w-[11px] lg:h-[11px] xl:w-[12px] xl:h-[12px] text-red-400 shrink-0" />
-                      )}
-                    </div>
-                  </div>
-                )}
 
                 {/* ── Audio-only speaking indicator (when no video) */}
                 {isReplicaSpeaking && !hasRemoteVideo && (
