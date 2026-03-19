@@ -328,7 +328,7 @@ export const DemoCallScreen = ({
             } else if (isPlayingRef.current) {
               console.log('[MIC] Skipped trigger — replica still playing')
             }
-          }, 2050)
+          }, 1250)
         }
       }, 150)
     }
@@ -454,34 +454,31 @@ export const DemoCallScreen = ({
       </div>
 
       {/* ── Main video area ──────────────────────────────────────── */}
-      <div className="flex-1 min-h-0 px-4 pb-4">
-        <div className="relative w-full h-full mx-auto" style={{ maxWidth: '1200px' }}>
+      <div className="flex-1 min-h-0 px-4 pb-4 flex items-center justify-center">
+        <div className="relative w-full mx-auto" style={{ maxWidth: '1200px', maxHeight: '100%', aspectRatio: '16 / 9' }}>
           {/* Outer white card */}
-          <div className="relative w-full h-full bg-white rounded-[18px] border border-[#CACDD2] shadow-[0_24px_32px_-12px_rgba(18,19,20,0.10)] overflow-hidden">
-            <div className="relative w-full h-full">
-              {/* Video container — border lights up when replica is speaking */}
-              <div
-                className={`relative h-full bg-[#1a1a2e] rounded-[16px] border-2 overflow-hidden transition-colors duration-300 ${
-                  isReplicaSpeaking
-                    ? 'border-[#4318ff]'
-                    : isConnected && !isMicMuted
-                      ? 'border-[#ffffff]'
-                      : 'border-transparent'
-                }`}
-              >
-                {/* ── Remote avatar video ──────────────────────── */}
-                <div className={`w-full h-full ${hasRemoteVideo ? 'block' : 'hidden'}`}>
-                  <DailyVideo
-                    sessionId={remoteIds[0]}
-                    type="video"
-                    className="block w-full h-full object-cover"
-                  />
-                </div>
+          <div
+            className={`relative w-[99.7%] h-full rounded-[18px] shadow-[0_24px_32px_-12px_rgba(18,19,20,0.10)] overflow-hidden border-2 transition-colors duration-300 ${
+              isReplicaSpeaking
+                ? 'border-[#4318ff]'
+                : isConnected && !isMicMuted
+                  ? 'border-[#ffffff]'
+                  : 'border-transparent'
+            }`}
+          >
+              {/* ── Remote avatar video ──────────────────────── */}
+              <div className={`w-full h-full ${hasRemoteVideo ? 'block' : 'hidden'}`}>
+                <DailyVideo
+                  sessionId={remoteIds[0]}
+                  type="video"
+                  className="block h-full w-full [&_video]:block [&_video]:h-full [&_video]:w-full [&_video]:object-cover"
+                />
+              </div>
 
-                {/* Fallback while waiting for video */}
-                <div
-                  className={`w-full h-full ${hasRemoteVideo ? 'hidden' : 'flex'} items-center justify-center bg-gradient-to-br from-[#1a1a2e] to-[#2d2b55]`}
-                >
+              {/* Fallback while waiting for video */}
+              <div
+                className={`w-full h-full ${hasRemoteVideo ? 'hidden' : 'flex'} items-center justify-center bg-gradient-to-br from-[#1a1a2e] to-[#2d2b55]`}
+              >
                   <div className="w-[140px] h-[140px] rounded-full bg-[#4318ff]/20 flex items-center justify-center border-2 border-[#4318ff]/30">
                     <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#4318ff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
@@ -652,7 +649,7 @@ export const DemoCallScreen = ({
                     />
                     <div className="absolute bottom-[4px] left-[4px] lg:bottom-[6px] lg:left-[6px] xl:bottom-[6px] xl:left-[6px] bg-black/65 px-[4px] py-[2px] lg:px-[6px] lg:py-[3px] xl:px-[7px] xl:py-[3px] rounded-[4px] lg:rounded-[6px] xl:rounded-[6px] flex items-center gap-[3px] lg:gap-[4px] xl:gap-[5px]">
                       <span className="font-['DM_Sans'] font-semibold text-[9px] lg:text-[11px] xl:text-[12px] leading-[14px] lg:leading-[16px] xl:leading-[18px] tracking-[-0.36px] text-[#eff0fa]">
-                        Case Manager
+                        Greg
                       </span>
                       {isMicMuted && (
                         <MicOff className="w-[9px] h-[9px] lg:w-[11px] lg:h-[11px] xl:w-[12px] xl:h-[12px] text-red-400 shrink-0" />
@@ -675,8 +672,6 @@ export const DemoCallScreen = ({
                     </div>
                   </div>
                 )}
-              </div>
-            </div>
           </div>
         </div>
       </div>

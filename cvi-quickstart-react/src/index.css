@@ -81,6 +81,11 @@ body {
   }
 }
 
+/* Force-clip video elements (overflow:hidden + border-radius doesn't work on <video>) */
+.video-clip-rounded {
+  clip-path: inset(0 round 12px);
+}
+
 /* Tavus demo animations */
 @keyframes tavus-fade-out {
   0% { opacity: 1; }
